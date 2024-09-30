@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../models/book.dart';
@@ -18,9 +20,16 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen> with SingleTickerProviderStateMixin {
   late PdfViewerController _pdfViewerController;
   late AnimationController _animationController;
-  late Animation<Offset> _slideAnimation;
+  late Animation<double> _fadeAnimation;
   bool _isControlsVisible = true;
   bool _isDocumentLoaded = false;
+  bool _isYellowOverlayEnabled = true;
+  double _currentZoomLevel = 1.0;
+  static const double _minZoomLevel = 1.0;
+  static const double _maxZoomLevel = 3.0;
+  static const double _zoomStep = 0.25;
+  final FocusNode _pdfFocusNode = FocusNode();
+  GlobalKey _pdfViewerKey = GlobalKey();
 
   @override
   void initState() {
@@ -28,21 +37,23 @@ class _ReaderScreenState extends State<ReaderScreen> with SingleTickerProviderSt
     _pdfViewerController = PdfViewerController();
     _animationController = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 300),
+      duration: Duration(milliseconds: 200),
     );
-    _slideAnimation = Tween<Offset>(
-      begin: Offset(0, 1),
-      end: Offset.zero,
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
     ).animate(CurvedAnimation(
       parent: _animationController,
-      curve: Curves.easeOut,
+      curve: Curves.easeInOut,
     ));
+    _animationController.value = 1.0; // Start with visible controls
   }
 
   @override
   void dispose() {
     _pdfViewerController.dispose();
     _animationController.dispose();
+    _pdfFocusNode.dispose();
     super.dispose();
   }
 
@@ -57,51 +68,121 @@ class _ReaderScreenState extends State<ReaderScreen> with SingleTickerProviderSt
     });
   }
 
+  void _toggleYellowOverlay() {
+    setState(() {
+      _isYellowOverlayEnabled = !_isYellowOverlayEnabled;
+    });
+  }
+
+  void _zoomIn() {
+    setState(() {
+      _currentZoomLevel = min(_currentZoomLevel + _zoomStep, _maxZoomLevel);
+      _pdfViewerController.zoomLevel = _currentZoomLevel;
+    });
+  }
+
+  void _zoomOut() {
+    setState(() {
+      _currentZoomLevel = max(_currentZoomLevel - _zoomStep, _minZoomLevel);
+      _pdfViewerController.zoomLevel = _currentZoomLevel;
+    });
+  }
+
+  void _handleKeyPress(RawKeyEvent event) {
+    if (event is RawKeyDownEvent) {
+      if (event.isControlPressed) {
+        if (event.logicalKey == LogicalKeyboardKey.equal ||
+            event.logicalKey == LogicalKeyboardKey.add) {
+          _zoomIn();
+        } else if (event.logicalKey == LogicalKeyboardKey.minus) {
+          _zoomOut();
+        }
+      }
+    }
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent) {
+      if (RawKeyboard.instance.keysPressed.contains(LogicalKeyboardKey.controlLeft) ||
+          RawKeyboard.instance.keysPressed.contains(LogicalKeyboardKey.controlRight)) {
+        if (event.scrollDelta.dy < 0) {
+          _zoomIn();
+        } else if (event.scrollDelta.dy > 0) {
+          _zoomOut();
+        }
+      } else {
+        // Handle normal scrolling here if needed
+        // For example, you might want to scroll the PDF viewer
+        // _pdfViewerController.scrollTo(...)
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _toggleControls,
-        child: Stack(
-          children: [
-            SfPdfViewer.file(
-              File(widget.book.filePath),
-              controller: _pdfViewerController,
-              onDocumentLoaded: (PdfDocumentLoadedDetails details) {
-                setState(() {
-                  _isDocumentLoaded = true;
-                });
-                _pdfViewerController.jumpToPage(max(1, widget.book.currentPage));
-              },
-              onPageChanged: (PdfPageChangedDetails details) {
-                Provider.of<StorageService>(context, listen: false)
-                    .updateBookProgress(widget.book.id, details.newPageNumber);
-              },
-              // pageLayoutMode: PdfPageLayoutMode.single,
-              scrollDirection: PdfScrollDirection.vertical,
-              // interactionMode: PdfInteractionMode.pan,
-            ),
-            if (_isDocumentLoaded) _buildControls(),
-          ],
+      body: RawKeyboardListener(
+        focusNode: _pdfFocusNode,
+        onKey: _handleKeyPress,
+        autofocus: true,
+        child: Listener(
+          onPointerSignal: _handlePointerSignal,
+          child: Stack(
+            children: [
+              GestureDetector(
+                onTap: _toggleControls,
+                child: SfPdfViewer.file(
+                  File(widget.book.filePath),
+                  key: _pdfViewerKey,
+                  controller: _pdfViewerController,
+                  onDocumentLoaded: (PdfDocumentLoadedDetails details) {
+                    setState(() {
+                      _isDocumentLoaded = true;
+                    });
+                    _pdfViewerController.jumpToPage(max(1, widget.book.currentPage));
+                  },
+                  onPageChanged: (PdfPageChangedDetails details) {
+                    Provider.of<StorageService>(context, listen: false)
+                        .updateBookProgress(widget.book.id, details.newPageNumber);
+                  },
+                  onZoomLevelChanged: (PdfZoomDetails details) {
+                    setState(() {
+                      _currentZoomLevel = details.newZoomLevel;
+                    });
+                  },
+                  enableDoubleTapZooming: true,
+                  canShowScrollHead: true,
+                  canShowScrollStatus: true,
+                  pageLayoutMode: PdfPageLayoutMode.continuous,
+                  scrollDirection: PdfScrollDirection.vertical,
+                  enableTextSelection: true,
+                  interactionMode: PdfInteractionMode.selection,
+                ),
+              ),
+              if (_isYellowOverlayEnabled && _isDocumentLoaded)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: YellowOverlayPainter(_pdfViewerKey, _currentZoomLevel),
+                    ),
+                  ),
+                ),
+              if (_isDocumentLoaded) _buildControls(),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildControls() {
-    return AnimatedBuilder(
-      animation: _animationController,
-      builder: (context, child) {
-        return SlideTransition(
-          position: _slideAnimation,
-          child: child,
-        );
-      },
+    return FadeTransition(
+      opacity: _fadeAnimation,
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _buildAppBar(),
+          Spacer(),
           _buildBottomControls(),
         ],
       ),
@@ -125,6 +206,21 @@ class _ReaderScreenState extends State<ReaderScreen> with SingleTickerProviderSt
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          IconButton(
+            icon: Icon(Icons.zoom_in, color: Colors.white),
+            onPressed: _zoomIn,
+          ),
+          IconButton(
+            icon: Icon(Icons.zoom_out, color: Colors.white),
+            onPressed: _zoomOut,
+          ),
+          IconButton(
+            icon: Icon(
+              _isYellowOverlayEnabled ? Icons.wb_sunny : Icons.wb_sunny_outlined,
+              color: Colors.white,
+            ),
+            onPressed: _toggleYellowOverlay,
+          ),
         ],
       ),
     );
@@ -134,50 +230,53 @@ class _ReaderScreenState extends State<ReaderScreen> with SingleTickerProviderSt
     return Container(
       color: Colors.black.withOpacity(0.7),
       padding: EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Page ${_pdfViewerController.pageNumber} of ${_pdfViewerController.pageCount}',
-                style: TextStyle(color: Colors.white70),
-              ),
-              Row(
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.navigate_before, color: Colors.white),
-                    onPressed: () => _pdfViewerController.previousPage(),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.navigate_next, color: Colors.white),
-                    onPressed: () => _pdfViewerController.nextPage(),
-                  ),
-                ],
-              ),
-            ],
+          Text(
+            'Page ${_pdfViewerController.pageNumber} of ${_pdfViewerController.pageCount}',
+            style: TextStyle(color: Colors.white),
           ),
-          SizedBox(height: 8),
-          if (_pdfViewerController.pageCount > 0)
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                activeTrackColor: Colors.white,
-                inactiveTrackColor: Colors.grey[800],
-                thumbColor: Colors.white,
-                overlayColor: Colors.white.withOpacity(0.3),
-              ),
-              child: Slider(
-                value: _pdfViewerController.pageNumber.toDouble(),
-                min: 1,
-                max: _pdfViewerController.pageCount.toDouble(),
-                onChanged: (value) {
-                  _pdfViewerController.jumpToPage(value.toInt());
-                },
-              ),
-            ),
+          Text(
+            'Zoom: ${(_currentZoomLevel * 100).toInt()}%',
+            style: TextStyle(color: Colors.white),
+          ),
         ],
       ),
     );
+  }
+}
+
+
+class YellowOverlayPainter extends CustomPainter {
+  final GlobalKey pdfViewerKey;
+  final double zoomLevel;
+
+  YellowOverlayPainter(this.pdfViewerKey, this.zoomLevel);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final RenderBox? renderBox = pdfViewerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final Offset position = renderBox.localToGlobal(Offset.zero);
+    final Size pdfSize = renderBox.size;
+
+    final paint = Paint()
+      ..color = Color(0x56F1DD57)  // Semi-transparent yellow
+      ..style = PaintingStyle.fill
+      ..blendMode = BlendMode.multiply;  // Use multiply blend mode
+
+    canvas.drawRect(Rect.fromLTWH(
+      position.dx,
+      position.dy,
+      pdfSize.width,
+      pdfSize.height,
+    ), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant YellowOverlayPainter oldDelegate) {
+    return oldDelegate.zoomLevel != zoomLevel;
   }
 }
