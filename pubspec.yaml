@@ -27,6 +27,7 @@ dependencies:
 
 
   syncfusion_flutter_pdf: any
+  google_fonts: ^4.0.4
 dev_dependencies:
   flutter_test:
     sdk: flutter
