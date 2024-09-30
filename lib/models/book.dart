@@ -7,7 +7,7 @@ class Book {
   String id;
   String title;
   String author;
-  final File file;
+  final File? file;  // Make file nullable
   String? coverPath;
   ReadingStatus status;
   double progress;
@@ -18,7 +18,7 @@ class Book {
     required this.id,
     required this.title,
     required this.author,
-    required this.file,
+    this.file,  // Make file optional
     this.coverPath,
     this.status = ReadingStatus.unread,
     this.progress = 0.0,

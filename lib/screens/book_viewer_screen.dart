@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_library_app/models/book.dart';
 import 'package:flutter_local_library_app/models/reading_session.dart';
+import 'package:provider/provider.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/library_model.dart';
+
 class BookViewerScreen extends StatefulWidget {
   final Book book;
-  final Function(Book) onBookUpdated;
 
   const BookViewerScreen({
     Key? key,
     required this.book,
-    required this.onBookUpdated,
   }) : super(key: key);
 
   @override
@@ -24,6 +25,8 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
   late SharedPreferences _prefs;
   late PdfViewerController _pdfViewerController;
   bool _isLoading = true;
+  PdfTextSearchResult _searchResult = PdfTextSearchResult();
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -43,8 +46,6 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
 
   Future<void> _initSharedPreferences() async {
     _prefs = await SharedPreferences.getInstance();
-    int lastPage = _prefs.getInt('lastPage_${_book.id}') ?? 1;
-    _pdfViewerController.jumpToPage(lastPage);
   }
 
   void _startReadingSession() {
@@ -67,19 +68,90 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
   void dispose() {
     _endReadingSession();
     _saveLastPage();
-    widget.onBookUpdated(_book);
     _pdfViewerController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
   void _saveLastPage() {
     _prefs.setInt('lastPage_${_book.id}', _pdfViewerController.pageNumber);
-  }
-
-  void _updateProgress() {
+    // Update the book progress
     setState(() {
       _book.progress = _pdfViewerController.pageNumber / _pdfViewerController.pageCount;
-      widget.onBookUpdated(_book);
+      _book.status = ReadingStatus.inProgress;
+    });
+    // Notify the LibraryModel
+    Provider.of<LibraryModel>(context, listen: false).updateBook(_book);
+  }
+
+  void _showBookDetails() {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SingleChildScrollView(
+          child: Container(
+            padding: EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_book.title, style: Theme.of(context).textTheme.headlineSmall),
+                Text(_book.author, style: Theme.of(context).textTheme.titleMedium),
+                SizedBox(height: 16),
+                Text('Reading Progress: ${(_book.progress * 100).toStringAsFixed(1)}%'),
+                LinearProgressIndicator(value: _book.progress),
+                SizedBox(height: 16),
+                Text('Total Reading Time: ${_book.totalReadingTime.inHours}h ${_book.totalReadingTime.inMinutes % 60}m'),
+                SizedBox(height: 16),
+                Text('Tags:', style: Theme.of(context).textTheme.titleMedium),
+                Wrap(
+                  spacing: 8,
+                  children: _book.tags.map((tag) => Chip(label: Text(tag))).toList(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSearchDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Search Text'),
+          content: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(hintText: 'Enter search text'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                _searchText(_searchController.text);
+                Navigator.of(context).pop();
+              },
+              child: Text('Search'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _searchText(String searchText) {
+    _searchResult = _pdfViewerController.searchText(searchText);
+    _searchResult.addListener(() {
+      if (_searchResult.hasResult) {
+        setState(() {});
+      }
     });
   }
 
@@ -90,25 +162,98 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
         title: Text(_book.title),
         actions: [
           IconButton(
-            icon: Icon(Icons.bookmark),
-            onPressed: () {
-              _pdfViewerController.jumpToPage(_pdfViewerController.pageNumber);
-            },
+            icon: Icon(Icons.info_outline),
+            onPressed: _showBookDetails,
           ),
+          IconButton(
+            icon: Icon(Icons.search),
+            onPressed: _showSearchDialog,
+          ),
+          if (_searchResult.hasResult)
+            IconButton(
+              icon: Icon(Icons.clear),
+              onPressed: () {
+                setState(() {
+                  _searchResult.clear();
+                });
+              },
+            ),
         ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : SfPdfViewer.file(
-        _book.file,
-        controller: _pdfViewerController,
-        onPageChanged: (PdfPageChangedDetails details) {
-          setState(() {
-            _saveLastPage();
-            _updateProgress();
-          });
-        },
+          : Stack(
+        children: [
+          SfPdfViewer.file(
+            _book.file!,
+            controller: _pdfViewerController,
+            onDocumentLoaded: (PdfDocumentLoadedDetails details) {
+              _jumpToLastReadPage();
+            },
+            onPageChanged: (PdfPageChangedDetails details) {
+              _saveLastPage();
+            },
+            enableDoubleTapZooming: true,
+            canShowScrollStatus: true,
+            canShowPaginationDialog: true,
+            pageSpacing: 0,
+            pageLayoutMode: PdfPageLayoutMode.continuous,
+          ),
+          if (_searchResult.hasResult)
+            Positioned(
+              bottom: 16,
+              right: 16,
+              child: Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: () {
+                      _searchResult.previousInstance();
+                    },
+                    child: Icon(Icons.arrow_upward),
+                  ),
+                  SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      _searchResult.nextInstance();
+                    },
+                    child: Icon(Icons.arrow_downward),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: BottomAppBar(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            IconButton(
+              icon: Icon(Icons.first_page),
+              onPressed: () => _pdfViewerController.firstPage(),
+            ),
+            IconButton(
+              icon: Icon(Icons.navigate_before),
+              onPressed: () => _pdfViewerController.previousPage(),
+            ),
+            Text('${_pdfViewerController.pageNumber} / ${_pdfViewerController.pageCount}'),
+            IconButton(
+              icon: Icon(Icons.navigate_next),
+              onPressed: () => _pdfViewerController.nextPage(),
+            ),
+            IconButton(
+              icon: Icon(Icons.last_page),
+              onPressed: () => _pdfViewerController.lastPage(),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  void _jumpToLastReadPage() {
+    int lastPage = _prefs.getInt('lastPage_${_book.id}') ?? 1;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pdfViewerController.jumpToPage(lastPage);
+    });
   }
 }

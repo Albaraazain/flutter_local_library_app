@@ -1,20 +1,21 @@
+// lib/screens/book_details_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter_local_library_app/models/book.dart';
-import 'package:flutter_local_library_app/models/reading_session.dart';
+import 'package:flutter_local_library_app/models/library_model.dart';
 import 'package:open_file/open_file.dart';
 import 'package:flutter_local_library_app/screens/book_viewer_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/reading_session.dart';
 
 class BookDetailsScreen extends StatefulWidget {
   final Book book;
-  final Function(Book) onBookUpdated;
 
   const BookDetailsScreen({
     Key? key,
     required this.book,
-    required this.onBookUpdated,
   }) : super(key: key);
 
   @override
@@ -38,7 +39,6 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
       _lastPage = prefs.getInt('lastPage_${_book.id}') ?? 1;
     });
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +77,7 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
               children: _book.tags.map((tag) => Chip(label: Text(tag))).toList(),
             ),
             SizedBox(height: 16),
-            Text('File Path: ${_book.file.path}'),
+            Text('File Path: ${_book.file?.path}'),
             SizedBox(height: 16),
             Text('Total Reading Time: ${_book.totalReadingTime.inHours}h ${_book.totalReadingTime.inMinutes % 60}m'),
             SizedBox(height: 24),
@@ -89,12 +89,6 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                     MaterialPageRoute(
                       builder: (context) => BookViewerScreen(
                         book: _book,
-                        onBookUpdated: (updatedBook) {
-                          setState(() {
-                            _book = updatedBook;
-                            widget.onBookUpdated(_book);
-                          });
-                        },
                       ),
                     ),
                   );
@@ -106,7 +100,7 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
             Center(
               child: ElevatedButton(
                 onPressed: () async {
-                  await OpenFile.open(_book.file.path);
+                  await OpenFile.open(_book.file?.path);
                 },
                 child: Text('Open Book'),
               ),
@@ -190,7 +184,9 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                 Slider(
                   value: progress,
                   onChanged: (double value) {
-                    progress = value;
+                    setState(() {
+                      progress = value;
+                    });
                   },
                   min: 0,
                   max: 1,
@@ -228,14 +224,16 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
     );
 
     if (result != null) {
-      _book.updateMetadata(
-        title: result['title'],
-        author: result['author'],
-        status: result['status'],
-        progress: result['progress'],
-        tags: result['tags'],
-      );
-      widget.onBookUpdated(_book);
+      setState(() {
+        _book.updateMetadata(
+          title: result['title'],
+          author: result['author'],
+          status: result['status'],
+          progress: result['progress'],
+          tags: result['tags'],
+        );
+      });
+      Provider.of<LibraryModel>(context, listen: false).updateBook(_book);
     }
   }
 }

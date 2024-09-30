@@ -1,3 +1,4 @@
+// lib/models/reading_session.dart
 class ReadingSession {
   final String id;
   final DateTime startTime;
