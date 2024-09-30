@@ -1,0 +1,30 @@
+name: flutter_local_library_app
+description: A local library app for organizing digital books.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=2.17.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  file_picker: ^5.3.1
+  path_provider: ^2.0.15
+  path: ^1.8.3
+  epub_view: ^3.2.0
+  open_file: ^3.3.2
+  syncfusion_flutter_pdfviewer: ^27.1.50
+  shared_preferences: ^2.1.1
+  scrollable_positioned_list: ^0.3.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.3
+
+flutter:
+  uses-material-design: true
