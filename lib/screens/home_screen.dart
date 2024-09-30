@@ -1,49 +1,64 @@
-// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_local_library_app/models/book.dart';
-import 'package:flutter_local_library_app/models/library_model.dart';
-import 'package:flutter_local_library_app/screens/book_viewer_screen.dart';
+import '../services/storage_service.dart';
+import '../services/file_service.dart';
+import '../widgets/sidebar.dart';
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
 
-  void _openBookViewer(BuildContext context, Book book) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => BookViewerScreen(book: book),
-      ),
-    );
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final FileService _fileService = FileService();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<StorageService>(context, listen: false).loadBooks();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<LibraryModel>(
-      builder: (context, libraryModel, child) {
-        List<Book> readingNowBooks = libraryModel.books
-            .where((book) => book.status == ReadingStatus.inProgress)
-            .toList();
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Home'),
-          ),
-          body: readingNowBooks.isEmpty
-              ? Center(child: Text('No books currently being read.'))
-              : ListView.builder(
-            itemCount: readingNowBooks.length,
-            itemBuilder: (context, index) {
-              Book book = readingNowBooks[index];
-              return ListTile(
-                title: Text(book.title),
-                subtitle: Text(book.author),
-                onTap: () => _openBookViewer(context, book),
-              );
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Library'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () async {
+              final book = await _fileService.uploadBook();
+              if (book != null) {
+                Provider.of<StorageService>(context, listen: false).addBook(book);
+              }
             },
           ),
-        );
-      },
+        ],
+      ),
+      body: Row(
+        children: [
+          const Sidebar(),
+          Expanded(
+            child: Consumer<StorageService>(
+              builder: (context, storageService, child) {
+                if (storageService.books.isEmpty) {
+                  return const Center(
+                    child: Text('No books in your library. Add some books to get started!'),
+                  );
+                } else {
+                  return const Center(
+                    child: Text('Select a book from the sidebar to start reading.'),
+                  );
+                }
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
