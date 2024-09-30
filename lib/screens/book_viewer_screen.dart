@@ -24,6 +24,7 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
   ReadingSession? _currentSession;
   late SharedPreferences _prefs;
   late PdfViewerController _pdfViewerController;
+  late LibraryModel _libraryModel;  // Store reference to LibraryModel
   bool _isLoading = true;
   PdfTextSearchResult _searchResult = PdfTextSearchResult();
   final TextEditingController _searchController = TextEditingController();
@@ -42,6 +43,13 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
     setState(() {
       _isLoading = false;
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Fetch and store the LibraryModel here safely
+    _libraryModel = Provider.of<LibraryModel>(context, listen: false);
   }
 
   Future<void> _initSharedPreferences() async {
@@ -75,45 +83,18 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
 
   void _saveLastPage() {
     _prefs.setInt('lastPage_${_book.id}', _pdfViewerController.pageNumber);
-    // Update the book progress
-    setState(() {
-      _book.progress = _pdfViewerController.pageNumber / _pdfViewerController.pageCount;
-      _book.status = ReadingStatus.inProgress;
-    });
-    // Notify the LibraryModel
-    Provider.of<LibraryModel>(context, listen: false).updateBook(_book);
+    _book.progress = _pdfViewerController.pageNumber / _pdfViewerController.pageCount;
+    _book.status = ReadingStatus.inProgress;
+
+    // Use the previously stored _libraryModel
+    _libraryModel.updateBook(_book);
   }
 
-  void _showBookDetails() {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext context) {
-        return SingleChildScrollView(
-          child: Container(
-            padding: EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_book.title, style: Theme.of(context).textTheme.headlineSmall),
-                Text(_book.author, style: Theme.of(context).textTheme.titleMedium),
-                SizedBox(height: 16),
-                Text('Reading Progress: ${(_book.progress * 100).toStringAsFixed(1)}%'),
-                LinearProgressIndicator(value: _book.progress),
-                SizedBox(height: 16),
-                Text('Total Reading Time: ${_book.totalReadingTime.inHours}h ${_book.totalReadingTime.inMinutes % 60}m'),
-                SizedBox(height: 16),
-                Text('Tags:', style: Theme.of(context).textTheme.titleMedium),
-                Wrap(
-                  spacing: 8,
-                  children: _book.tags.map((tag) => Chip(label: Text(tag))).toList(),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  void _jumpToLastReadPage() {
+    int lastPage = _prefs.getInt('lastPage_${_book.id}') ?? 1;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pdfViewerController.jumpToPage(lastPage);
+    });
   }
 
   void _showSearchDialog() {
@@ -150,10 +131,44 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
     _searchResult = _pdfViewerController.searchText(searchText);
     _searchResult.addListener(() {
       if (_searchResult.hasResult) {
-        setState(() {});
+        setState(() {}); // Trigger UI update when search results are found
       }
     });
   }
+
+  void _showBookDetails() {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SingleChildScrollView(
+          child: Container(
+            padding: EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_book.title, style: Theme.of(context).textTheme.headlineSmall),
+                Text(_book.author, style: Theme.of(context).textTheme.titleMedium),
+                SizedBox(height: 16),
+                Text('Reading Progress: ${(_book.progress * 100).toStringAsFixed(1)}%'),
+                LinearProgressIndicator(value: _book.progress),
+                SizedBox(height: 16),
+                Text('Total Reading Time: ${_book.totalReadingTime.inHours}h ${_book.totalReadingTime.inMinutes % 60}m'),
+                SizedBox(height: 16),
+                Text('Tags:', style: Theme.of(context).textTheme.titleMedium),
+                Wrap(
+                  spacing: 8,
+                  children: _book.tags.map((tag) => Chip(label: Text(tag))).toList(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -248,12 +263,5 @@ class _BookViewerScreenState extends State<BookViewerScreen> {
         ),
       ),
     );
-  }
-
-  void _jumpToLastReadPage() {
-    int lastPage = _prefs.getInt('lastPage_${_book.id}') ?? 1;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pdfViewerController.jumpToPage(lastPage);
-    });
   }
 }

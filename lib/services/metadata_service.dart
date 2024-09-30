@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:epub_view/epub_view.dart';
 import 'package:flutter_local_library_app/models/book.dart';
+import 'package:path/path.dart' as path;
+
 
 class MetadataService {
   Future<Book> extractMetadata(File file) async {
-    String fileName = file.path.split('/').last;
+    String fileName = path.basename(file.path);
     String title = fileName.split('.').first;
     String author = 'Unknown Author';
 
@@ -18,11 +20,15 @@ class MetadataService {
       }
     }
 
+    // Use the file path as id
+    String id = file.path;
+
     return Book(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: id,
       title: title,
       author: author,
       file: file,
     );
   }
+
 }

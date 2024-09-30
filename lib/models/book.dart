@@ -4,7 +4,7 @@ import 'package:flutter_local_library_app/models/reading_session.dart';
 enum ReadingStatus { unread, inProgress, completed }
 
 class Book {
-  String id;
+  final String id;
   String title;
   String author;
   final File? file;  // Make file nullable
